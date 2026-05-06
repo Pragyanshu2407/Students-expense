@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: app
+    image: student-expense-tracker:latest
+    container_name: expense-tracker
+    ports:
+      - "5000:5000"          # host:container
+    environment:
+      - DB_PATH=/data/expenses.db
+    volumes:
+      - expense_data:/data   # persist SQLite DB across restarts
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:5000/')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  expense_data:
+    driver: local
