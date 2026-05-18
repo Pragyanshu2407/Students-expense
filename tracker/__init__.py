@@ -1,7 +1,6 @@
 from flask import Flask
 from flask_login import LoginManager
 from flask_sqlalchemy import SQLAlchemy
-from prometheus_flask_exporter import PrometheusMetrics
 
 from config import config
 
@@ -18,11 +17,6 @@ def create_app(config_name: str = "default") -> Flask:
 
     db.init_app(app)
     login_manager.init_app(app)
-
-    # Skip Prometheus instrumentation in tests — avoids duplicate-registry errors
-    # when multiple test fixtures each call create_app().
-    if not app.config.get("TESTING"):
-        PrometheusMetrics(app)
 
     from tracker.admin import admin_bp
     from tracker.auth import auth as auth_bp

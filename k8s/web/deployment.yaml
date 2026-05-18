@@ -90,12 +90,10 @@ spec:
         - name: expense-web
           # Replace YOUR_DOCKERHUB_USERNAME with your actual Docker Hub username.
           # Example: pragyanshu/student-expense-tracker:latest
-          image: YOUR_DOCKERHUB_USERNAME/student-expense-tracker:latest
+          image: student-expense-tracker:latest
 
-          # Always — always pull from registry on pod start (ensures latest tag is fresh)
-          # IfNotPresent — use locally cached image if available (faster for dev)
-          # Never — never pull; must be pre-loaded with `minikube image load`
-          imagePullPolicy: IfNotPresent
+          # Never — use the image loaded via `minikube image load` (local dev)
+          imagePullPolicy: Never
 
           ports:
             - name: http
