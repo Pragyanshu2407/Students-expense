@@ -60,8 +60,11 @@ def on_starting(server):
     from tracker import create_app, db
     from tracker.models import User
 
-    env = os.environ.get("FLASK_ENV", "production")
-    app = create_app(env)
+    # Use TESTING=True so PrometheusMetrics is skipped in this throw-away app.
+    # The worker's app (imported via run:app) does the real Prometheus init.
+    # Without this, on_starting registers metrics in the global registry first,
+    # and the worker's second registration silently fails, breaking request tracking.
+    app = create_app("testing")
 
     max_retries = 15
     for attempt in range(1, max_retries + 1):
