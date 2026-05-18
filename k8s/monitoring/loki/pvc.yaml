@@ -1,0 +1,30 @@
+# =============================================================================
+# PersistentVolumeClaim — loki-pvc
+# =============================================================================
+#
+# Loki stores log chunks and index files on this PVC.
+# Default retention: logs are kept until disk is full (no TTL in basic config).
+# To add retention: set limits_config.retention_period in loki.yaml.
+#
+# Size: 5Gi handles about 2-4 weeks of logs from this small app.
+#
+# Apply:  kubectl apply -f k8s/monitoring/loki/pvc.yaml
+# =============================================================================
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: loki-pvc
+  namespace: expense-tracker
+  labels:
+    app: loki
+
+spec:
+  accessModes:
+    - ReadWriteOnce
+
+  resources:
+    requests:
+      storage: 5Gi
+
+  storageClassName: standard

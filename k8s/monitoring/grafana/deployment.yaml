@@ -1,0 +1,133 @@
+# =============================================================================
+# Deployment — grafana
+# =============================================================================
+#
+# Grafana is the visualisation layer.  It connects to Prometheus as a
+# data source and renders the dashboards we provisioned in the ConfigMap.
+#
+# Volume mounts:
+#   /var/lib/grafana                   ← PVC (persistent data: SQLite DB, plugins)
+#   /etc/grafana/provisioning/datasources ← ConfigMap key: prometheus.yaml
+#   /etc/grafana/provisioning/dashboards  ← ConfigMap key: provider.yaml
+#   /var/lib/grafana/dashboards           ← Dashboard ConfigMap (expense-tracker.json)
+#
+# Apply:  kubectl apply -f k8s/monitoring/grafana/deployment.yaml
+# Logs:   kubectl logs -n expense-tracker deployment/grafana -f
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: expense-tracker
+  labels:
+    app: grafana
+    app.kubernetes.io/component: monitoring
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+
+  # Recreate avoids two pods trying to write to the same PVC.
+  strategy:
+    type: Recreate
+
+  template:
+    metadata:
+      labels:
+        app: grafana
+
+    spec:
+      # Grafana official image runs as uid 472
+      securityContext:
+        runAsUser: 472
+        runAsGroup: 472
+        fsGroup: 472
+
+      containers:
+        - name: grafana
+          image: grafana/grafana:10.4.2
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: web
+              containerPort: 3000
+
+          # Load admin credentials from Secret
+          envFrom:
+            - secretRef:
+                name: grafana-secret
+
+          env:
+            # Disable telemetry reporting (optional but good practice)
+            - name: GF_ANALYTICS_REPORTING_ENABLED
+              value: "false"
+            # Allow embedding in iframes (useful for sharing dashboards)
+            - name: GF_SECURITY_ALLOW_EMBEDDING
+              value: "true"
+            # Disable sign-up (this is an internal tool)
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+
+          volumeMounts:
+            # Persistent storage for Grafana's own database, plugins, etc.
+            - name: data-vol
+              mountPath: /var/lib/grafana
+
+            # Auto-provision the Prometheus datasource
+            - name: config-vol
+              mountPath: /etc/grafana/provisioning/datasources/prometheus.yaml
+              subPath: prometheus.yaml
+              readOnly: true
+
+            # Auto-provision the dashboard provider (tells Grafana where to find JSONs)
+            - name: config-vol
+              mountPath: /etc/grafana/provisioning/dashboards/provider.yaml
+              subPath: provider.yaml
+              readOnly: true
+
+            # Mount the dashboard JSON files
+            - name: dashboards-vol
+              mountPath: /var/lib/grafana/dashboards
+              readOnly: true
+
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "300m"
+
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+      volumes:
+        - name: data-vol
+          persistentVolumeClaim:
+            claimName: grafana-pvc
+
+        - name: config-vol
+          configMap:
+            name: grafana-config
+
+        - name: dashboards-vol
+          configMap:
+            name: grafana-dashboards

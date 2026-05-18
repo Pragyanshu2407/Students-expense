@@ -1,0 +1,318 @@
+# =============================================================================
+# ConfigMap — grafana-dashboards
+# =============================================================================
+#
+# Stores the Student Expense Tracker dashboard as a JSON file.
+# Grafana's dashboard provider (in grafana-config) loads all JSON files
+# from /var/lib/grafana/dashboards at startup.
+#
+# Dashboard panels:
+#   Row 1 — HTTP traffic
+#     - Request rate (req/s) by endpoint
+#     - HTTP error rate (4xx + 5xx)
+#     - P95 response time latency
+#   Row 2 — System resources (from cAdvisor via Prometheus)
+#     - Flask pod CPU usage (cores)
+#     - Flask pod memory usage (MB)
+#     - Postgres pod CPU usage
+#   Row 3 — Logs (Loki)
+#     - Live log stream panel (requires Loki datasource to be added manually)
+#
+# To export an updated dashboard from the UI:
+#   Dashboard → Share → Export → Save to file
+#   Then replace the JSON below.
+#
+# Apply:  kubectl apply -f k8s/monitoring/grafana/dashboard-configmap.yaml
+# =============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: expense-tracker
+  labels:
+    app: grafana
+
+data:
+  expense-tracker.json: |
+    {
+      "__inputs": [],
+      "__requires": [
+        { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0" },
+        { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" }
+      ],
+      "annotations": { "list": [] },
+      "description": "Student Expense Tracker — HTTP metrics, resource usage, error rates",
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [],
+      "panels": [
+
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+          "id": 100,
+          "title": "HTTP Traffic",
+          "type": "row"
+        },
+
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "lineWidth": 2 },
+              "unit": "reqps"
+            }
+          },
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
+          "id": 1,
+          "options": { "legend": { "displayMode": "table", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum(rate(flask_http_request_total{namespace=\"expense-tracker\"}[5m])) by (endpoint, method)",
+              "legendFormat": "{{method}} {{endpoint}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Request Rate (req/s)",
+          "type": "timeseries"
+        },
+
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "fixed", "fixedColor": "red" },
+              "custom": { "lineWidth": 2 },
+              "unit": "reqps"
+            }
+          },
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 1 },
+          "id": 2,
+          "targets": [
+            {
+              "expr": "sum(rate(flask_http_request_total{namespace=\"expense-tracker\", status=~\"4..|5..\"}[5m]))",
+              "legendFormat": "Error rate",
+              "refId": "A"
+            }
+          ],
+          "title": "HTTP Error Rate (4xx + 5xx)",
+          "type": "timeseries"
+        },
+
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "lineWidth": 2 },
+              "unit": "s"
+            }
+          },
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
+          "id": 3,
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(flask_http_request_duration_seconds_bucket{namespace=\"expense-tracker\"}[5m])) by (le, endpoint))",
+              "legendFormat": "p95 {{endpoint}}",
+              "refId": "A"
+            }
+          ],
+          "title": "P95 Response Time",
+          "type": "timeseries"
+        },
+
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+          "id": 101,
+          "title": "Resource Usage",
+          "type": "row"
+        },
+
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "lineWidth": 2 },
+              "unit": "short"
+            }
+          },
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 10 },
+          "id": 4,
+          "targets": [
+            {
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"expense-tracker\", container=\"expense-web\"}[5m])) by (pod)",
+              "legendFormat": "{{pod}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Flask Pod CPU (cores)",
+          "type": "timeseries"
+        },
+
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "lineWidth": 2 },
+              "unit": "bytes"
+            }
+          },
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 10 },
+          "id": 5,
+          "targets": [
+            {
+              "expr": "container_memory_working_set_bytes{namespace=\"expense-tracker\", container=\"expense-web\"}",
+              "legendFormat": "{{pod}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Flask Pod Memory",
+          "type": "timeseries"
+        },
+
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": { "lineWidth": 2 },
+              "unit": "short"
+            }
+          },
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 10 },
+          "id": 6,
+          "targets": [
+            {
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"expense-tracker\", container=\"postgres\"}[5m])) by (pod)",
+              "legendFormat": "postgres {{pod}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Postgres Pod CPU (cores)",
+          "type": "timeseries"
+        },
+
+        {
+          "collapsed": false,
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
+          "id": 102,
+          "title": "Quick Stats",
+          "type": "row"
+        },
+
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": { "color": { "mode": "thresholds" }, "unit": "short",
+              "thresholds": { "mode": "absolute", "steps": [
+                { "color": "green", "value": null },
+                { "color": "red", "value": 1 }
+              ]}
+            }
+          },
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 19 },
+          "id": 7,
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "background" },
+          "targets": [
+            {
+              "expr": "sum(rate(flask_http_request_total{namespace=\"expense-tracker\", status=~\"5..\"}[5m]))",
+              "legendFormat": "5xx/s",
+              "refId": "A"
+            }
+          ],
+          "title": "5xx Error Rate",
+          "type": "stat"
+        },
+
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": { "color": { "mode": "thresholds" }, "unit": "short",
+              "thresholds": { "mode": "absolute", "steps": [
+                { "color": "green", "value": null },
+                { "color": "yellow", "value": 2 },
+                { "color": "red", "value": 5 }
+              ]}
+            }
+          },
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 19 },
+          "id": 8,
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "background" },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(flask_http_request_duration_seconds_bucket{namespace=\"expense-tracker\"}[5m])) by (le))",
+              "legendFormat": "p95 latency",
+              "refId": "A"
+            }
+          ],
+          "title": "P95 Latency",
+          "type": "stat"
+        },
+
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": { "color": { "mode": "thresholds" }, "unit": "short",
+              "thresholds": { "mode": "absolute", "steps": [
+                { "color": "green", "value": null }
+              ]}
+            }
+          },
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 19 },
+          "id": 9,
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "value" },
+          "targets": [
+            {
+              "expr": "sum(rate(flask_http_request_total{namespace=\"expense-tracker\"}[1m]))",
+              "legendFormat": "req/s",
+              "refId": "A"
+            }
+          ],
+          "title": "Current Request Rate",
+          "type": "stat"
+        },
+
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": { "color": { "mode": "thresholds" }, "unit": "bytes",
+              "thresholds": { "mode": "absolute", "steps": [
+                { "color": "green", "value": null },
+                { "color": "yellow", "value": 200000000 },
+                { "color": "red", "value": 400000000 }
+              ]}
+            }
+          },
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 19 },
+          "id": 10,
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "textMode": "auto", "colorMode": "background" },
+          "targets": [
+            {
+              "expr": "sum(container_memory_working_set_bytes{namespace=\"expense-tracker\", container=\"expense-web\"})",
+              "legendFormat": "memory",
+              "refId": "A"
+            }
+          ],
+          "title": "Flask Memory Total",
+          "type": "stat"
+        }
+
+      ],
+      "refresh": "30s",
+      "schemaVersion": 38,
+      "tags": ["expense-tracker", "flask", "kubernetes"],
+      "templating": { "list": [] },
+      "time": { "from": "now-1h", "to": "now" },
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "Student Expense Tracker",
+      "uid": "expense-tracker-v1",
+      "version": 1
+    }

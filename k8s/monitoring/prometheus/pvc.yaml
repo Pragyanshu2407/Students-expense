@@ -1,0 +1,39 @@
+# =============================================================================
+# PersistentVolumeClaim — prometheus-pvc
+# =============================================================================
+#
+# Prometheus stores its time-series data on disk (TSDB format).
+# Without persistent storage, all metric history is lost when the pod restarts.
+#
+# On Minikube, the "standard" StorageClass uses the "hostPath" provisioner,
+# which automatically creates a directory on the Minikube VM.
+# No need to create a PV manually — the provisioner handles it.
+#
+# Storage sizing guide:
+#   Prometheus default retention: 15 days
+#   Our setup: ~3 scrape jobs × 15s interval × 15 days ≈ ~200 MB
+#   We request 2Gi to leave plenty of headroom.
+#
+# Apply:  kubectl apply -f k8s/monitoring/prometheus/pvc.yaml
+# Verify: kubectl get pvc prometheus-pvc -n expense-tracker
+# =============================================================================
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-pvc
+  namespace: expense-tracker
+  labels:
+    app: prometheus
+
+spec:
+  accessModes:
+    - ReadWriteOnce   # one pod can read+write at a time (fine for a single Prometheus)
+
+  resources:
+    requests:
+      storage: 2Gi
+
+  # "standard" is Minikube's default dynamic provisioner.
+  # It creates a hostPath volume automatically — no manual PV needed.
+  storageClassName: standard

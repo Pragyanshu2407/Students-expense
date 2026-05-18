@@ -1,10 +1,32 @@
+import logging
 import os
 import time
 
+from pythonjsonlogger import jsonlogger
 from sqlalchemy.exc import OperationalError
 
 from tracker import create_app, db
 from tracker.models import User
+
+
+def _configure_logging() -> None:
+    """Switch the root logger to JSON format so log shippers (Promtail/Loki) can
+    parse fields like level, message, and timestamp without regex gymnastics."""
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        jsonlogger.JsonFormatter(
+            fmt="%(asctime)s %(levelname)s %(name)s %(message)s",
+            datefmt="%Y-%m-%dT%H:%M:%S",
+        )
+    )
+    root = logging.getLogger()
+    root.handlers = []
+    root.addHandler(handler)
+    level = os.environ.get("LOG_LEVEL", "INFO").upper()
+    root.setLevel(getattr(logging, level, logging.INFO))
+
+
+_configure_logging()
 
 env = os.environ.get("FLASK_ENV", "development")
 app = create_app(env)

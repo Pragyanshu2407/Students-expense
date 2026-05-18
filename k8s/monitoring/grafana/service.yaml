@@ -1,0 +1,33 @@
+# =============================================================================
+# Service — grafana-svc
+# =============================================================================
+#
+# NodePort service so you can access Grafana from your browser.
+# Open: http://$(minikube ip):30300
+#
+# Login: admin / grafana123  (defined in grafana-secret)
+#
+# Apply:  kubectl apply -f k8s/monitoring/grafana/service.yaml
+# Access: minikube service grafana-svc -n expense-tracker --url
+# =============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-svc
+  namespace: expense-tracker
+  labels:
+    app: grafana
+
+spec:
+  type: NodePort
+
+  selector:
+    app: grafana
+
+  ports:
+    - name: web
+      protocol: TCP
+      port: 3000
+      targetPort: 3000
+      nodePort: 30300

@@ -102,6 +102,12 @@ data:
                 proxy_set_header   Host $host;
             }
 
+            # Block /metrics from the public internet — Prometheus scrapes the
+            # Flask pod directly via ClusterIP, never through the Ingress.
+            location /metrics {
+                return 403;
+            }
+
             # All other traffic
             location / {
                 proxy_pass           http://flask_app;

@@ -1,0 +1,120 @@
+# =============================================================================
+# DaemonSet — promtail
+# =============================================================================
+#
+# A DaemonSet runs exactly one pod on every node.
+# Promtail must be a DaemonSet because log files live on the node, not in a
+# shared network location.  One Promtail per node reads that node's logs.
+#
+# Host mounts:
+#   /var/log/pods       ← (read-only)  container log files written by the CRI
+#   /var/lib/docker/containers ← (read-only)  Docker log metadata (docker driver)
+#   /run/promtail       ← (read-write) positions file (survives pod restart)
+#
+# Apply:  kubectl apply -f k8s/monitoring/promtail/daemonset.yaml
+# Verify: kubectl get pods -n expense-tracker -l app=promtail
+# Logs:   kubectl logs -n expense-tracker -l app=promtail -f
+# =============================================================================
+
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: promtail
+  namespace: expense-tracker
+  labels:
+    app: promtail
+    app.kubernetes.io/component: logging
+
+spec:
+  selector:
+    matchLabels:
+      app: promtail
+
+  template:
+    metadata:
+      labels:
+        app: promtail
+
+    spec:
+      serviceAccountName: promtail
+
+      # Tolerate all node taints — run on every node including control-plane
+      # (Minikube only has one node, so this just ensures Promtail runs)
+      tolerations:
+        - operator: Exists
+
+      containers:
+        - name: promtail
+          image: grafana/promtail:3.0.0
+          imagePullPolicy: IfNotPresent
+
+          args:
+            - "-config.file=/etc/promtail/promtail.yaml"
+
+          ports:
+            - name: http
+              containerPort: 9080
+
+          env:
+            # Pass the node hostname so Promtail can use it as a label
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+          volumeMounts:
+            - name: config-vol
+              mountPath: /etc/promtail
+              readOnly: true
+
+            # Node log files — read-only
+            - name: pods-logs-vol
+              mountPath: /var/log/pods
+              readOnly: true
+
+            # Docker metadata (needed for some log formats)
+            - name: docker-logs-vol
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+
+            # Positions file — must be read-write and survive restarts
+            - name: positions-vol
+              mountPath: /run/promtail
+
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 9080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+
+      volumes:
+        - name: config-vol
+          configMap:
+            name: promtail-config
+
+        # Mount the host's pod log directory
+        - name: pods-logs-vol
+          hostPath:
+            path: /var/log/pods
+
+        # Mount Docker container metadata
+        - name: docker-logs-vol
+          hostPath:
+            path: /var/lib/docker/containers
+
+        # Persistent positions file — use hostPath so it survives pod deletion
+        # (emptyDir would be lost when pod is rescheduled)
+        - name: positions-vol
+          hostPath:
+            path: /run/promtail
+            type: DirectoryOrCreate

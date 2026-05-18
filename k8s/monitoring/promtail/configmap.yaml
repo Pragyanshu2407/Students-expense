@@ -1,0 +1,117 @@
+# =============================================================================
+# ConfigMap — promtail-config
+# =============================================================================
+#
+# Promtail is an agent that tails log files and ships them to Loki.
+# It runs as a DaemonSet — one pod per node — so it can read every
+# container's logs from the node filesystem.
+#
+# How container logs reach the node filesystem:
+#   Docker/containerd writes container stdout/stderr to:
+#   /var/log/pods/<namespace>_<pod>_<uid>/<container>/<n>.log
+#   (also symlinked under /var/log/containers/)
+#
+# What this config does:
+#   1. Scrapes all *.log files under /var/log/pods/
+#   2. Uses kubernetes_sd_configs to discover pods
+#   3. Attaches labels: namespace, pod, container, app (from pod label)
+#   4. Parses JSON log lines (from python-json-logger) into structured fields
+#   5. Pushes log streams to Loki at http://loki-svc:3100
+#
+# Apply:  kubectl apply -f k8s/monitoring/promtail/configmap.yaml
+# =============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promtail-config
+  namespace: expense-tracker
+  labels:
+    app: promtail
+
+data:
+  promtail.yaml: |
+    # ── Server ─────────────────────────────────────────────────────────────────
+    server:
+      http_listen_port: 9080
+      grpc_listen_port: 0
+
+    # ── Position file ──────────────────────────────────────────────────────────
+    # Tracks how far Promtail has read each log file.
+    # Stored on a hostPath volume so it persists across pod restarts.
+    # Without this, Promtail would re-send all logs on every restart.
+    positions:
+      filename: /run/promtail/positions.yaml
+
+    # ── Loki endpoint ──────────────────────────────────────────────────────────
+    clients:
+      - url: http://loki-svc:3100/loki/api/v1/push
+        # Batch settings: send logs every 1s or when 1MB is buffered (whichever first)
+        batchwait: 1s
+        batchsize: 1048576
+
+    # ── Scrape configuration ───────────────────────────────────────────────────
+    scrape_configs:
+
+      # Discover Kubernetes pods and tail their log files
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+
+        # pipeline_stages process each log line before sending to Loki
+        pipeline_stages:
+
+          # Stage 1: Parse JSON log lines emitted by python-json-logger.
+          # This converts the raw log string into structured fields that
+          # Loki can index, making it filterable in Grafana.
+          # Example raw line: {"asctime":"2024-01-15T12:00:00","levelname":"INFO","name":"tracker.auth","message":"User logged in"}
+          - json:
+              expressions:
+                level: levelname       # "INFO", "WARNING", "ERROR"
+                logger: name           # Python logger name (e.g. "tracker.auth")
+                timestamp: asctime
+
+          # Stage 2: Promote "level" to a Loki label so you can filter by it:
+          #   {app="expense-web", level="ERROR"}
+          - labels:
+              level:
+              logger:
+
+          # Stage 3: Use the log's own timestamp (not the shipping time).
+          # This keeps log timestamps accurate even if there's a shipping delay.
+          - timestamp:
+              source: timestamp
+              format: "2006-01-02T15:04:05"   # Go time format
+
+        # relabel_configs: transform Kubernetes metadata into Loki labels
+        relabel_configs:
+
+          # Only ship logs from our namespace (expense-tracker)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: keep
+            regex: expense-tracker
+
+          # Set the "namespace" label
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+
+          # Set the "pod" label
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+
+          # Set the "container" label
+          - source_labels: [__meta_kubernetes_pod_container_name]
+            target_label: container
+
+          # Set the "app" label from the pod's "app" label (e.g. "expense-web")
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            target_label: app
+
+          # Build the path to the log file on the node
+          # Format: /var/log/pods/<namespace>_<pod>_<uid>/<container>/*.log
+          - source_labels:
+              - __meta_kubernetes_pod_uid
+              - __meta_kubernetes_pod_container_name
+            separator: /
+            target_label: __path__
+            replacement: /var/log/pods/*$1/*.log

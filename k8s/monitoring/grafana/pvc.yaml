@@ -1,0 +1,30 @@
+# =============================================================================
+# PersistentVolumeClaim — grafana-pvc
+# =============================================================================
+#
+# Grafana stores dashboards, datasources, users, and plugins on disk.
+# Without this PVC, every Grafana pod restart wipes your custom work.
+#
+# Size: 1Gi is plenty for dashboards and the Grafana SQLite database.
+#
+# Apply:  kubectl apply -f k8s/monitoring/grafana/pvc.yaml
+# Verify: kubectl get pvc grafana-pvc -n expense-tracker
+# =============================================================================
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc
+  namespace: expense-tracker
+  labels:
+    app: grafana
+
+spec:
+  accessModes:
+    - ReadWriteOnce
+
+  resources:
+    requests:
+      storage: 1Gi
+
+  storageClassName: standard
