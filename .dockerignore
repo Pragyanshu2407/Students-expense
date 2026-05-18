@@ -1,0 +1,65 @@
+# =============================================================================
+# .dockerignore — controls what is sent to the Docker build daemon.
+#
+# A smaller build context means:
+#   - Faster `docker build` (less data transferred)
+#   - No accidental leakage of secrets or credentials into the image
+# =============================================================================
+
+# ── Version control ───────────────────────────────────────────────────────────
+.git/
+.gitignore
+
+# ── Python byte-code & caches ─────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Virtual environments (we use the Docker venv, not a local one) ────────────
+venv/
+.venv/
+env/
+.env/
+
+# ── Test artifacts ────────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+# Exclude test files from the image — tests run in CI, not in production
+test_app.py
+
+# ── Secrets — NEVER bake credentials into the image ──────────────────────────
+.env
+.env.*
+# But keep the example template (it has no real secrets)
+!.env.example
+
+# ── IDE and editor files ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── OS cruft ─────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Local SQLite databases ────────────────────────────────────────────────────
+*.db
+*.sqlite3
+
+# ── Docs and CI config (not needed at runtime) ───────────────────────────────
+*.md
+.github/
+
+# ── Docker files themselves ───────────────────────────────────────────────────
+# Excluding these is optional — they don't add to image size, but clean context
+docker-compose*.yml
+.dockerignore
