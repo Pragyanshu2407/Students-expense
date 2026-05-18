@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% block title %}Login — Expense Tracker{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-5">
+  <div class="col-sm-10 col-md-5 col-lg-4">
+
+    <div class="card p-4">
+      <h4 class="mb-4 text-center fw-bold">
+        <i class="bi bi-lock-fill me-2 text-primary"></i>Sign In
+      </h4>
+
+      <form method="POST" novalidate>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Username</label>
+          <input type="text" name="username" class="form-control" autofocus required />
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Password</label>
+          <input type="password" name="password" class="form-control" required />
+        </div>
+
+        <div class="mb-4 form-check">
+          <input type="checkbox" name="remember" class="form-check-input" id="remember" />
+          <label class="form-check-label" for="remember">Remember me</label>
+        </div>
+
+        <button type="submit" class="btn btn-primary w-100 fw-semibold">
+          <i class="bi bi-box-arrow-in-right me-1"></i>Login
+        </button>
+      </form>
+
+      <hr class="my-3" />
+
+      <p class="text-center mb-0 small">
+        No account? <a href="{{ url_for('auth.register') }}">Register here</a>
+      </p>
+    </div>
+
+    <div class="card mt-3 p-3 border-0 bg-light text-center small text-muted">
+      <strong>Demo credentials</strong><br />
+      Admin: <code>admin</code> / <code>admin123</code><br />
+      Or register a new student account above.
+    </div>
+
+  </div>
+</div>
+{% endblock %}

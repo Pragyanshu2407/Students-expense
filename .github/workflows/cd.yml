@@ -1,0 +1,225 @@
+# =============================================================================
+# CD — Continuous Deployment: Build & Push to Docker Hub
+# =============================================================================
+#
+# Triggers
+# ────────
+#   1. workflow_run — fires when the "CI" workflow completes on `main`.
+#      The push only happens if CI succeeded (conclusion == 'success').
+#      This guarantees: lint + security + tests + smoke test all passed first.
+#
+#   2. push tag v*.*.* — fires when you tag a release (e.g. git tag v1.2.0).
+#      A tag push represents an intentional release, so we build + push with
+#      semantic version tags (1.2.0 and 1.2).
+#
+# Required GitHub Secrets (Repository → Settings → Secrets → Actions)
+# ───────────────────────────────────────────────────────────────────
+#   DOCKERHUB_USERNAME   Your Docker Hub username (e.g. pragyanshu)
+#   DOCKERHUB_TOKEN      A Docker Hub Access Token (NOT your password).
+#                        Create one at: hub.docker.com → Account Settings
+#                        → Security → New Access Token (Read & Write)
+#
+# Image tags produced
+# ───────────────────
+#   On push to main:
+#     yourusername/student-expense-tracker:latest
+#     yourusername/student-expense-tracker:main
+#     yourusername/student-expense-tracker:sha-a1b2c3d
+#
+#   On tag v1.2.3:
+#     yourusername/student-expense-tracker:1.2.3
+#     yourusername/student-expense-tracker:1.2
+#     yourusername/student-expense-tracker:latest
+#     yourusername/student-expense-tracker:sha-a1b2c3d
+# =============================================================================
+
+name: CD
+
+on:
+  # Trigger via successful CI completion on main
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+  # Trigger directly for version tags (v1.0.0, v2.3.1, etc.)
+  push:
+    tags: ["v*.*.*"]
+
+# Only one CD run at a time — prevents race conditions when two commits land
+# on main in quick succession.
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false   # never cancel a push-in-progress
+
+jobs:
+
+  # ── Job 1: Gate — only continue if CI passed ───────────────────────────────
+  # When triggered by a tag push, this job is skipped (tags imply intent).
+  # When triggered by workflow_run, we verify CI actually succeeded.
+  check-ci:
+    name: Verify CI passed
+    runs-on: ubuntu-latest
+    outputs:
+      should-deploy: ${{ steps.gate.outputs.deploy }}
+
+    steps:
+      - name: Evaluate gate
+        id: gate
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            # Tag push — always deploy
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            echo "✓ Tag push detected — proceeding to deploy"
+          elif [[ "${{ github.event.workflow_run.conclusion }}" == "success" ]]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            echo "✓ CI passed — proceeding to deploy"
+          else
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "✗ CI did not pass (conclusion: ${{ github.event.workflow_run.conclusion }}) — skipping deploy"
+          fi
+
+
+  # ── Job 2: Re-run tests before pushing ────────────────────────────────────
+  # Even though CI already tested the code, we re-verify here as a safety net.
+  # This is especially important for tag pushes that bypass the workflow_run gate.
+  test:
+    name: Test (pytest)
+    runs-on: ubuntu-latest
+    needs: check-ci
+    if: needs.check-ci.outputs.should-deploy == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # For workflow_run events, check out the commit that triggered CI,
+          # not the HEAD of the branch (they may differ by milliseconds).
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest test_app.py -v --tb=short
+        env:
+          FLASK_ENV: testing
+
+
+  # ── Job 3: Build and push to Docker Hub ────────────────────────────────────
+  push-image:
+    name: Push to Docker Hub
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      # ── QEMU lets the x86 GitHub runner build ARM images via emulation.
+      #    Remove linux/arm64 from `platforms` below if you don't need it.
+      - name: Set up QEMU (multi-arch emulation)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ── Generate image tags and OCI labels automatically ──────────────────
+      # docker/metadata-action reads the Git ref and produces the right tags:
+      #
+      #   main branch push  → latest, main, sha-<short>
+      #   v1.2.3 tag push   → 1.2.3, 1.2, latest, sha-<short>
+      #
+      # OCI labels (org.opencontainers.image.*) are embedded into the image
+      # and visible on Docker Hub's image details page.
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/student-expense-tracker
+          tags: |
+            # Always tag with the short Git SHA for traceability
+            type=sha,prefix=sha-,format=short
+
+            # On main: tag as `latest` and `main`
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+
+            # On semver tags (v1.2.3): tag as `1.2.3` and `1.2`
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          labels: |
+            org.opencontainers.image.title=Student Expense Tracker
+            org.opencontainers.image.description=Flask expense tracker with PostgreSQL, auth, and role-based dashboards
+            org.opencontainers.image.vendor=${{ secrets.DOCKERHUB_USERNAME }}
+
+      # ── Log in to Docker Hub ──────────────────────────────────────────────
+      # Uses the DOCKERHUB_TOKEN secret (an Access Token, not your password).
+      # Access tokens can be scoped and revoked without changing your password.
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # ── Build and push ────────────────────────────────────────────────────
+      # `push: true` uploads the image to Docker Hub.
+      # `platforms` builds for both Intel/AMD (amd64) and Apple Silicon /
+      # Raspberry Pi (arm64) in a single command.
+      - name: Build and push image
+        id: build-push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          target: app
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── Post-push vulnerability scan ──────────────────────────────────────
+      # Scan the image that was just pushed to Docker Hub.
+      # Results appear in the GitHub Security tab → Code scanning alerts.
+      - name: Scan pushed image with Trivy
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/student-expense-tracker:latest
+          format: sarif
+          output: trivy-push.sarif
+          severity: HIGH,CRITICAL
+          exit-code: "0"   # advisory — change to "1" to block on CRITICAL CVEs
+
+      - name: Upload Trivy scan to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-push.sarif
+          category: trivy-pushed-image
+
+      # ── Summary ───────────────────────────────────────────────────────────
+      # Writes a visible summary to the Actions run page with the image digest
+      # (a cryptographic fingerprint of the exact build that was pushed).
+      # The digest is more reliable than a tag for pinning deployments.
+      - name: Write job summary
+        run: |
+          echo "## Docker image pushed" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Repository** | \`${{ secrets.DOCKERHUB_USERNAME }}/student-expense-tracker\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Tags** | \`$(echo '${{ steps.meta.outputs.tags }}' | tr '\n' ' ')\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Digest** | \`${{ steps.build-push.outputs.digest }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| **Platforms** | linux/amd64, linux/arm64 |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Pull with: \`docker pull ${{ secrets.DOCKERHUB_USERNAME }}/student-expense-tracker:latest\`" >> "$GITHUB_STEP_SUMMARY"

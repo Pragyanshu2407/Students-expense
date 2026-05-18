@@ -1,0 +1,35 @@
+# =============================================================================
+# Service — expense-web-svc
+# =============================================================================
+#
+# ClusterIP service for the Flask/Gunicorn pods.
+# The Nginx pods upstream to "expense-web-svc:5000" using Kubernetes DNS.
+#
+# This service automatically load-balances across all healthy expense-web pods.
+# Unhealthy pods (failed readiness probe) are automatically removed from rotation.
+#
+# Apply:  kubectl apply -f k8s/web/service.yaml
+# Verify: kubectl get service expense-web-svc -n expense-tracker
+#         kubectl get endpoints expense-web-svc -n expense-tracker
+#         (endpoints list shows the IPs of all healthy pods)
+# =============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: expense-web-svc
+  namespace: expense-tracker
+  labels:
+    app: expense-web
+
+spec:
+  type: ClusterIP
+
+  selector:
+    app: expense-web   # routes to all pods with this label
+
+  ports:
+    - name: http
+      protocol: TCP
+      port: 5000
+      targetPort: 5000

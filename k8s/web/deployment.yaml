@@ -1,0 +1,162 @@
+# =============================================================================
+# Deployment — expense-web  (Flask + Gunicorn)
+# =============================================================================
+#
+# This is the main application deployment.
+# Unlike Postgres, we run 2 replicas because Flask/Gunicorn is stateless —
+# any request can be handled by any pod.  Kubernetes load-balances between them.
+#
+# BEFORE APPLYING — set your Docker Hub image:
+#   Replace "YOUR_DOCKERHUB_USERNAME" with your actual username.
+#   Or for local Minikube dev (no Docker Hub needed):
+#     eval $(minikube docker-env)                   # point Docker at Minikube
+#     docker build -t student-expense-tracker:latest .
+#     Then set imagePullPolicy: Never in this file.
+#
+# Apply:  kubectl apply -f k8s/web/deployment.yaml
+# Verify: kubectl get pods -n expense-tracker -l app=expense-web
+# Logs:   kubectl logs -n expense-tracker -l app=expense-web -f --all-containers
+# Shell:  kubectl exec -it -n expense-tracker deployment/expense-web -- sh
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: expense-web
+  namespace: expense-tracker
+  labels:
+    app: expense-web
+    app.kubernetes.io/name: expense-tracker
+    app.kubernetes.io/component: web
+
+spec:
+  # ── Replicas ───────────────────────────────────────────────────────────────
+  # 2 pods = high availability.  If one node crashes, the other keeps serving.
+  # Scale up:   kubectl scale deployment expense-web --replicas=4 -n expense-tracker
+  # Scale down: kubectl scale deployment expense-web --replicas=1 -n expense-tracker
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app: expense-web
+
+  # ── Rolling update strategy ────────────────────────────────────────────────
+  # RollingUpdate replaces pods gradually — NO downtime during deployments.
+  #
+  # maxSurge: 1       → allow 1 extra pod during the update (3 pods briefly)
+  # maxUnavailable: 0 → never reduce below 2 healthy pods during the update
+  #
+  # Result: new pods are started BEFORE old ones are removed.
+  # The service only routes to a new pod AFTER its readiness probe passes.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  template:
+    metadata:
+      labels:
+        app: expense-web
+
+    spec:
+      terminationGracePeriodSeconds: 30
+
+      # ── Wait for Postgres before starting Flask ──────────────────────────
+      # initContainers run to completion BEFORE the main container starts.
+      # This one waits until Postgres is accepting connections.
+      # Without this, Flask would crash on startup if Postgres isn't ready yet.
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Postgres at postgres-svc:5432..."
+              until pg_isready -h postgres-svc -p 5432 -U $POSTGRES_USER; do
+                echo "  Postgres not ready yet — sleeping 3s"
+                sleep 3
+              done
+              echo "Postgres is ready!"
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: POSTGRES_USER
+
+      containers:
+        - name: expense-web
+          # Replace YOUR_DOCKERHUB_USERNAME with your actual Docker Hub username.
+          # Example: pragyanshu/student-expense-tracker:latest
+          image: YOUR_DOCKERHUB_USERNAME/student-expense-tracker:latest
+
+          # Always — always pull from registry on pod start (ensures latest tag is fresh)
+          # IfNotPresent — use locally cached image if available (faster for dev)
+          # Never — never pull; must be pre-loaded with `minikube image load`
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 5000
+
+          # ── Environment variables ─────────────────────────────────────────
+          # envFrom loads ALL keys from a ConfigMap/Secret as env vars.
+          # This is equivalent to --env-file in docker run.
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+
+          # ── Resources ─────────────────────────────────────────────────────
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "1000m"   # 1 full vCPU burst
+
+          # ── Startup probe ─────────────────────────────────────────────────
+          # Gunicorn's on_starting hook initialises the DB (create_all + seed
+          # admin).  On a cold start this can take 10–20 s.
+          # failureThreshold × periodSeconds = 30 × 5 = 150 s max startup time.
+          # Liveness and readiness probes are PAUSED until this succeeds.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            failureThreshold: 30
+            periodSeconds: 5
+            timeoutSeconds: 3
+
+          # ── Liveness probe ────────────────────────────────────────────────
+          # "Is the Flask app still responding?"
+          # If /health fails 3 times, Kubernetes restarts this container.
+          # /health returns {"status":"ok"} — defined in tracker/main.py.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 0   # startup probe handles the initial delay
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+
+          # ── Readiness probe ───────────────────────────────────────────────
+          # "Is this pod ready to receive user traffic?"
+          # If /health fails, this pod is temporarily removed from the Service's
+          # load-balancer endpoints.  Traffic goes to other healthy pods only.
+          # This is what makes rolling updates zero-downtime.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1

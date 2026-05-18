@@ -1,28 +1,128 @@
+# =============================================================================
+# docker-compose.yml — Student Expense Tracker (Phase 2)
+#
+# Services
+# ────────
+#   db     PostgreSQL 16  — persistent data store
+#   web    Flask/Gunicorn — application server (internal only, no host port)
+#   nginx  Nginx          — reverse proxy, the only public-facing service
+#
+# Startup order (enforced by `depends_on + condition: service_healthy`)
+#
+#   db  ──(healthy?)──►  web  ──(healthy?)──►  nginx
+#
+# All secrets come from .env (see .env.example for the template).
+# Run:  cp .env.example .env   and fill in real values before starting.
+# =============================================================================
+
 version: "3.9"
 
+# docker-compose automatically reads .env in the same directory and substitutes
+# ${VAR} references below.  No extra configuration needed.
+
 services:
+
+  # ── 1. PostgreSQL ──────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: expense-db
+
+    # Credentials come from .env — never hardcoded here.
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB}
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+    volumes:
+      # Named volume → data survives `docker compose down` (but not `--volumes`)
+      - postgres_data:/var/lib/postgresql/data
+
+    # Expose port on host only in development so you can inspect DB with
+    # a GUI tool (TablePlus, pgAdmin, DBeaver …).
+    # Comment this out in production.
+    ports:
+      - "5432:5432"
+
+    restart: unless-stopped
+
+    # pg_isready exits 0 only when Postgres is accepting connections.
+    # `web` waits for this before starting (condition: service_healthy).
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── 2. Flask / Gunicorn ────────────────────────────────────────────────────
   web:
     build:
       context: .
       dockerfile: Dockerfile
-      target: app
+      target: app          # use the production stage (non-root + gunicorn)
+
     image: student-expense-tracker:latest
-    container_name: expense-tracker
-    ports:
-      - "5000:5000"          # host:container
-    environment:
-      - DB_PATH=/data/expenses.db
-    volumes:
-      - expense_data:/data   # persist SQLite DB across restarts
+    container_name: expense-web
+
+    # Load ALL variables from .env into the container's environment.
+    env_file: .env
+
+    # NOTE: no `ports` block here.
+    # The web service is intentionally NOT accessible from the host directly.
+    # All traffic must flow through Nginx — this enforces the proxy layer.
+
+    depends_on:
+      db:
+        condition: service_healthy   # wait until Postgres is fully ready
+
     restart: unless-stopped
+
+    # Docker calls /health every 30 s.  If it fails 3 times in a row,
+    # the container is marked "unhealthy" and nginx stops routing to it.
     healthcheck:
-      test: ["CMD", "python", "-c",
-             "import urllib.request; urllib.request.urlopen('http://localhost:5000/')"]
+      test: ["CMD", "curl", "--fail", "--silent",
+             "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s   # give gunicorn + DB-init time to finish on first boot
+
+  # ── 3. Nginx reverse proxy ─────────────────────────────────────────────────
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: expense-nginx
+
+    # This is the ONLY service that exposes a port to the host.
+    # Users hit http://localhost:80 → Nginx → Gunicorn.
+    ports:
+      - "80:80"
+
+    volumes:
+      # Mount config read-only so the container cannot modify it.
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+
+    depends_on:
+      web:
+        condition: service_healthy   # don't start until Flask is up
+
+    restart: unless-stopped
+
+    # wget comes pre-installed in nginx:alpine (no curl available by default).
+    # Quietly fetch /health and fail if the response is not 2xx.
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider",
+             "http://localhost/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
 
+# =============================================================================
+# Named volumes
+# =============================================================================
 volumes:
-  expense_data:
+  # Postgres data directory.
+  # Survives: docker compose down, docker compose up
+  # Deleted by: docker compose down --volumes
+  postgres_data:
     driver: local

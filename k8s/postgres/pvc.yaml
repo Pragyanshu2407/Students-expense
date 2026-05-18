@@ -1,0 +1,41 @@
+# =============================================================================
+# PersistentVolumeClaim — postgres-pvc
+# =============================================================================
+#
+# A PersistentVolumeClaim (PVC) is a REQUEST for storage.
+# The relationship between PV and PVC is like a job posting and an applicant:
+#
+#   PV  = "I have 1Gi of ReadWriteOnce storage available" (the offer)
+#   PVC = "I need 1Gi of ReadWriteOnce storage"          (the request)
+#
+# Kubernetes matches (binds) the PVC to a compatible PV automatically.
+# Once bound, the Postgres Deployment mounts the PVC as a volume.
+#
+# Apply:  kubectl apply -f k8s/postgres/pvc.yaml
+# Verify: kubectl get pvc postgres-pvc -n expense-tracker
+#         STATUS should be "Bound" (not "Pending")
+# =============================================================================
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: expense-tracker
+  labels:
+    app: postgres
+
+spec:
+  storageClassName: standard   # must match the PV's storageClassName
+
+  accessModes:
+    - ReadWriteOnce            # must match the PV's accessModes
+
+  resources:
+    requests:
+      storage: 1Gi             # request ≤ PV capacity
+
+  # Pin this PVC to our specific PV using its label.
+  # Without this, Kubernetes might bind to any matching PV in the cluster.
+  selector:
+    matchLabels:
+      app: postgres

@@ -1,0 +1,115 @@
+# =============================================================================
+# Deployment — prometheus
+# =============================================================================
+#
+# Runs a single Prometheus instance.  Single replica is fine for local/dev:
+#   - Prometheus TSDB can't be shared between replicas without Thanos/Cortex
+#   - For production HA, see https://prometheus.io/docs/operating/federation/
+#
+# Storage layout inside the pod:
+#   /prometheus        ← Prometheus data directory (mounted from PVC)
+#   /etc/prometheus    ← Config directory (mounted from ConfigMap)
+#
+# Apply:  kubectl apply -f k8s/monitoring/prometheus/deployment.yaml
+# Logs:   kubectl logs -n expense-tracker deployment/prometheus -f
+# Shell:  kubectl exec -it -n expense-tracker deployment/prometheus -- sh
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: expense-tracker
+  labels:
+    app: prometheus
+    app.kubernetes.io/component: monitoring
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+
+  # Recreate avoids two Prometheus instances trying to write to the same PVC.
+  # (ReadWriteOnce PVCs can't be mounted by two pods simultaneously.)
+  strategy:
+    type: Recreate
+
+  template:
+    metadata:
+      labels:
+        app: prometheus
+
+    spec:
+      serviceAccountName: prometheus   # grants RBAC permissions for k8s_sd
+
+      # Security context: run as non-root user 65534 (nobody).
+      # Prometheus official image expects to run as this user.
+      securityContext:
+        runAsUser: 65534
+        runAsNonRoot: true
+        fsGroup: 65534   # ensures the PVC is writable by this user
+
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.51.2
+          imagePullPolicy: IfNotPresent
+
+          args:
+            # Path to the config file (mounted from ConfigMap)
+            - "--config.file=/etc/prometheus/prometheus.yml"
+            # Where to store the TSDB data (mounted from PVC)
+            - "--storage.tsdb.path=/prometheus"
+            # Keep 15 days of data (default) — adjust for your disk size
+            - "--storage.tsdb.retention.time=15d"
+            # Enable the web UI (needed to browse metrics manually)
+            - "--web.enable-lifecycle"   # allows POST /-/reload to hot-reload config
+            - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+            - "--web.console.templates=/usr/share/prometheus/consoles"
+
+          ports:
+            - name: web
+              containerPort: 9090
+
+          volumeMounts:
+            - name: config-vol
+              mountPath: /etc/prometheus
+              readOnly: true
+            - name: data-vol
+              mountPath: /prometheus
+
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+
+          # Readiness: only route traffic once Prometheus has loaded its config
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+      volumes:
+        - name: config-vol
+          configMap:
+            name: prometheus-config
+
+        - name: data-vol
+          persistentVolumeClaim:
+            claimName: prometheus-pvc

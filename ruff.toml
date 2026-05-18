@@ -1,0 +1,40 @@
+# ruff.toml — linting + formatting configuration
+#
+# ruff is a single tool that replaces: flake8, isort, pyupgrade, and black.
+# Docs: https://docs.astral.sh/ruff/
+
+# ── Formatter ─────────────────────────────────────────────────────────────────
+line-length    = 100
+indent-width   = 4
+target-version = "py312"
+
+# ── Linter ────────────────────────────────────────────────────────────────────
+[lint]
+select = [
+    "E",   # pycodestyle errors   — syntax / indentation errors
+    "F",   # pyflakes             — undefined names, unused imports
+    "W",   # pycodestyle warnings — trailing whitespace etc.
+    "I",   # isort                — import ordering
+    "B",   # flake8-bugbear       — likely bugs and design problems
+    "C4",  # flake8-comprehensions— unnecessary use of map/filter/list()
+]
+
+ignore = [
+    "E501",  # line too long — the formatter handles this, not the linter
+    "B008",  # function calls in default argument values (common Flask pattern)
+]
+
+# Paths ruff should never touch
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "*.egg-info",
+]
+
+# ── isort — import ordering ───────────────────────────────────────────────────
+[lint.isort]
+# Tell isort which packages are "yours" so it groups them correctly:
+#   stdlib  →  third-party  →  first-party (blank line between each group)
+known-first-party = ["tracker", "config"]

@@ -1,0 +1,100 @@
+# =============================================================================
+# Deployment — loki
+# =============================================================================
+#
+# Single-binary Loki (all components in one process).
+# Suitable for local/dev; production uses microservices mode.
+#
+# Container structure:
+#   /loki          ← PVC mount (chunks, index, cache)
+#   /etc/loki      ← ConfigMap mount (loki.yaml)
+#
+# Apply:  kubectl apply -f k8s/monitoring/loki/deployment.yaml
+# Logs:   kubectl logs -n expense-tracker deployment/loki -f
+# Check:  curl http://$(minikube ip):30310/ready
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: expense-tracker
+  labels:
+    app: loki
+    app.kubernetes.io/component: logging
+
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loki
+
+  strategy:
+    type: Recreate   # Loki TSDB can't be shared between two writer instances
+
+  template:
+    metadata:
+      labels:
+        app: loki
+
+    spec:
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+
+      containers:
+        - name: loki
+          image: grafana/loki:3.0.0
+          imagePullPolicy: IfNotPresent
+
+          args:
+            - "-config.file=/etc/loki/loki.yaml"
+
+          ports:
+            - name: http
+              containerPort: 3100
+            - name: grpc
+              containerPort: 9096
+
+          volumeMounts:
+            - name: config-vol
+              mountPath: /etc/loki
+              readOnly: true
+            - name: data-vol
+              mountPath: /loki
+
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "300m"
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3100
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 3100
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+      volumes:
+        - name: config-vol
+          configMap:
+            name: loki-config
+
+        - name: data-vol
+          persistentVolumeClaim:
+            claimName: loki-pvc

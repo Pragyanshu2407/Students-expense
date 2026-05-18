@@ -1,0 +1,96 @@
+# =============================================================================
+# ConfigMap — loki-config
+# =============================================================================
+#
+# Loki is a log aggregation system by Grafana Labs — think "Prometheus for logs".
+# It stores log streams indexed by labels, not full text, which makes it
+# lightweight (no Elasticsearch required).
+#
+# Architecture in this setup:
+#   Containers → stdout/stderr
+#   Promtail   → reads container logs from the node filesystem → ships to Loki
+#   Loki       → stores and indexes log streams
+#   Grafana    → queries Loki using LogQL and displays logs
+#
+# Key Loki concepts:
+#   stream  — a set of logs with the same labels (app, namespace, pod, etc.)
+#   chunk   — a compressed block of log entries for one stream
+#   index   — maps label sets to chunk locations
+#
+# This config uses the "filesystem" storage backend — all data goes to a
+# single PVC.  For production, switch to S3/GCS.
+#
+# Apply:  kubectl apply -f k8s/monitoring/loki/configmap.yaml
+# =============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-config
+  namespace: expense-tracker
+  labels:
+    app: loki
+
+data:
+  loki.yaml: |
+    # ── Authentication ─────────────────────────────────────────────────────────
+    # Disable multi-tenancy for local dev — all logs go to the "fake" org.
+    auth_enabled: false
+
+    # ── Server ─────────────────────────────────────────────────────────────────
+    server:
+      http_listen_port: 3100
+      grpc_listen_port: 9096
+      log_level: warn
+
+    # ── Common storage config ──────────────────────────────────────────────────
+    common:
+      path_prefix: /loki
+      storage:
+        filesystem:
+          chunks_directory: /loki/chunks
+          rules_directory: /loki/rules
+      replication_factor: 1
+      ring:
+        instance_addr: 127.0.0.1
+        kvstore:
+          store: inmemory
+
+    # ── Schema config ──────────────────────────────────────────────────────────
+    # Defines how Loki stores and indexes logs.
+    # "tsdb" is the modern index type; "v13" is the current schema version.
+    schema_config:
+      configs:
+        - from: 2024-01-01
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: loki_index_
+            period: 24h
+
+    # ── Limits ─────────────────────────────────────────────────────────────────
+    limits_config:
+      # Max time range for a single query (24h for local dev)
+      max_query_length: 24h
+      # Reject log lines older than this (prevents back-fill attacks)
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h   # 7 days
+      # Ingestion rate limits per stream (relaxed for local dev)
+      ingestion_rate_mb: 16
+      ingestion_burst_size_mb: 32
+
+    # ── Compactor ──────────────────────────────────────────────────────────────
+    # Runs in the background, merging small chunks into larger ones.
+    # Reduces disk usage and speeds up queries.
+    compactor:
+      working_directory: /loki/boltdb-cache
+      compaction_interval: 10m
+
+    # ── Query range ────────────────────────────────────────────────────────────
+    query_range:
+      results_cache:
+        cache:
+          embedded_cache:
+            enabled: true
+            max_size_mb: 100

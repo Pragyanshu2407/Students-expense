@@ -1,0 +1,44 @@
+# =============================================================================
+# ConfigMap — app-config
+# =============================================================================
+#
+# A ConfigMap stores non-sensitive configuration as key-value pairs.
+# Pods read these values as environment variables.
+#
+# Rule of thumb:
+#   ConfigMap  → anything you'd put in .env that is NOT a secret
+#   Secret     → passwords, API keys, connection strings with credentials
+#
+# Apply:  kubectl apply -f k8s/configmap.yaml
+# Verify: kubectl get configmap app-config -n expense-tracker
+# Inspect: kubectl describe configmap app-config -n expense-tracker
+# =============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: expense-tracker
+  labels:
+    app.kubernetes.io/name: expense-tracker
+
+data:
+  # ── Flask ──────────────────────────────────────────────────────────────────
+  FLASK_ENV: "production"
+
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  # These tell the Postgres container which database and user to create
+  # on first boot.  Matching values are used in the Flask DATABASE_URL
+  # (stored in the Secret so the password isn't visible here).
+  POSTGRES_DB:   "expense_tracker"
+  POSTGRES_USER: "postgres"
+
+  # ── Gunicorn ───────────────────────────────────────────────────────────────
+  # Tune these based on your pod's CPU limit.
+  # Formula: (2 × vCPU) + 1 is a common starting point.
+  GUNICORN_WORKERS: "2"
+  GUNICORN_THREADS: "2"
+  GUNICORN_TIMEOUT: "60"
+
+  # ── Logging ────────────────────────────────────────────────────────────────
+  LOG_LEVEL: "info"

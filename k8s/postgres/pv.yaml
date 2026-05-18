@@ -1,0 +1,61 @@
+# =============================================================================
+# PersistentVolume — postgres-pv
+# =============================================================================
+#
+# A PersistentVolume (PV) is a piece of storage provisioned in the cluster.
+# Think of it as a "network hard drive" that survives pod restarts.
+#
+# Why do we need this for Postgres?
+#   Without a PV, data lives inside the container's filesystem.
+#   If the Postgres pod restarts (crash, update, node failure), ALL DATA IS LOST.
+#   Mounting a PV means data persists independently of the pod lifecycle.
+#
+# Minikube note:
+#   Minikube runs a single-node cluster inside a VM.  Real cloud clusters use
+#   network storage (AWS EBS, GCP PD, Azure Disk).  For Minikube we use
+#   `hostPath` which maps a directory on the Minikube VM's filesystem.
+#
+#   The path /data/postgres lives on the MINIKUBE VM, not your laptop.
+#   To inspect it:  minikube ssh -- ls /data/postgres
+#
+# Apply:  kubectl apply -f k8s/postgres/pv.yaml
+# Verify: kubectl get pv postgres-pv
+#         kubectl describe pv postgres-pv
+# =============================================================================
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: postgres-pv   # PVs are cluster-scoped (no namespace)
+  labels:
+    app: postgres
+    type: local
+
+spec:
+  # ── Capacity ───────────────────────────────────────────────────────────────
+  capacity:
+    storage: 1Gi   # 1 GiB is plenty for development data
+
+  # ── Access mode ────────────────────────────────────────────────────────────
+  # ReadWriteOnce — can be mounted read-write by ONE node at a time.
+  # This is correct for a single Postgres instance.
+  # (ReadWriteMany would allow multiple nodes — needed for shared file storage)
+  accessModes:
+    - ReadWriteOnce
+
+  # ── Storage class ──────────────────────────────────────────────────────────
+  # "standard" is Minikube's default StorageClass.
+  # The PVC must request the same StorageClass to bind to this PV.
+  storageClassName: standard
+
+  # ── Reclaim policy ─────────────────────────────────────────────────────────
+  # Retain — when the PVC is deleted, keep the PV and its data.
+  # (Delete would wipe the data automatically — dangerous for a database!)
+  persistentVolumeReclaimPolicy: Retain
+
+  # ── Host path (Minikube only) ──────────────────────────────────────────────
+  # Points to a directory on the Minikube VM filesystem.
+  # DirectoryOrCreate — create the directory if it doesn't exist.
+  hostPath:
+    path: /data/postgres
+    type: DirectoryOrCreate

@@ -1,0 +1,144 @@
+{% extends 'base.html' %}
+{% block title %}My Dashboard — Expense Tracker{% endblock %}
+
+{% block content %}
+
+<!-- ── Summary Cards ─────────────────────────────────── -->
+<div class="row g-3 mt-1">
+  <div class="col-sm-4">
+    <div class="card stat-card p-3 text-white bg-primary">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <div class="small opacity-75">Total Spent</div>
+          <div class="fs-3 fw-bold">${{ "%.2f" | format(total) }}</div>
+        </div>
+        <i class="bi bi-cash-stack fs-1 opacity-40"></i>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-4">
+    <div class="card stat-card p-3 text-white bg-success">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <div class="small opacity-75">Expenses</div>
+          <div class="fs-3 fw-bold">{{ expenses | length }}</div>
+        </div>
+        <i class="bi bi-receipt fs-1 opacity-40"></i>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-4">
+    <div class="card stat-card p-3 text-white bg-info">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <div class="small opacity-75">Welcome back</div>
+          <div class="fs-5 fw-bold">{{ current_user.username }}</div>
+        </div>
+        <i class="bi bi-mortarboard fs-1 opacity-40"></i>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Main Content ───────────────────────────────────── -->
+<div class="row g-4 mt-1">
+
+  <!-- Add Expense Form -->
+  <div class="col-lg-4">
+    <div class="card p-4">
+      <h5 class="fw-bold mb-3">
+        <i class="bi bi-plus-circle-fill text-primary me-2"></i>Add Expense
+      </h5>
+      <form method="POST" novalidate>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Title</label>
+          <input type="text" name="title" class="form-control"
+                 placeholder="e.g. Lunch at cafeteria" required />
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Amount ($)</label>
+          <input type="number" name="amount" class="form-control"
+                 step="0.01" min="0.01" placeholder="0.00" required />
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Category</label>
+          <select name="category" class="form-select">
+            {% for cat in categories %}
+            <option>{{ cat }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-4">
+          <label class="form-label fw-semibold">Date</label>
+          <input type="date" name="date" class="form-control" value="{{ today }}" />
+        </div>
+        <button type="submit" class="btn btn-primary w-100 fw-semibold">
+          <i class="bi bi-plus-lg me-1"></i>Add Expense
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Expense Table -->
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
+        <h5 class="mb-0 fw-bold">
+          <i class="bi bi-list-ul me-2 text-secondary"></i>My Expenses
+        </h5>
+        <span class="badge bg-secondary">{{ expenses | length }} records</span>
+      </div>
+
+      {% if expenses %}
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Title</th>
+              <th>Category</th>
+              <th>Date</th>
+              <th>Amount</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for e in expenses %}
+            <tr>
+              <td>{{ e.title }}</td>
+              <td>
+                <span class="badge bg-light text-dark border">{{ e.category }}</span>
+              </td>
+              <td class="text-muted small">{{ e.date }}</td>
+              <td class="fw-semibold text-success">${{ "%.2f" | format(e.amount) }}</td>
+              <td>
+                <form method="POST"
+                      action="{{ url_for('student.delete_expense', expense_id=e.id) }}"
+                      onsubmit="return confirm('Delete this expense?')">
+                  <button class="btn btn-outline-danger btn-sm">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot class="table-light">
+            <tr>
+              <td colspan="3" class="fw-bold text-end text-muted small">TOTAL</td>
+              <td class="fw-bold text-primary">${{ "%.2f" | format(total) }}</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      {% else %}
+      <div class="text-center py-5 text-muted">
+        <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+        No expenses yet. Add your first one!
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}

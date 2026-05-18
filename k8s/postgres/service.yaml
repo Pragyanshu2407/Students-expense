@@ -1,0 +1,41 @@
+# =============================================================================
+# Service — postgres-svc
+# =============================================================================
+#
+# A Service gives pods a stable DNS name and IP address.
+# Without a Service, pods get random IPs that change every restart.
+#
+# This Service is type ClusterIP — it is only reachable from INSIDE the cluster.
+# The Flask app connects to "postgres-svc:5432" (resolved by Kubernetes DNS).
+# Postgres is NEVER exposed directly to the internet — only the Flask app talks to it.
+#
+# Apply:  kubectl apply -f k8s/postgres/service.yaml
+# Verify: kubectl get service postgres-svc -n expense-tracker
+#         kubectl get endpoints postgres-svc -n expense-tracker
+#
+# Test connectivity (from inside the cluster):
+#   kubectl run -it --rm pg-test --image=postgres:16-alpine \
+#     --restart=Never -n expense-tracker \
+#     -- psql -h postgres-svc -U postgres -d expense_tracker
+# =============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-svc   # this name is the DNS hostname other pods use
+  namespace: expense-tracker
+  labels:
+    app: postgres
+
+spec:
+  type: ClusterIP   # internal-only; not reachable from outside the cluster
+
+  # Route traffic to all pods with label app=postgres
+  selector:
+    app: postgres
+
+  ports:
+    - name: postgres
+      protocol: TCP
+      port: 5432        # port this service listens on
+      targetPort: 5432  # port on the pod to forward to

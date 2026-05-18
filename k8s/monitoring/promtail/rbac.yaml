@@ -1,0 +1,48 @@
+# =============================================================================
+# Promtail RBAC
+# =============================================================================
+#
+# Promtail needs to read pod metadata from the Kubernetes API so it can
+# attach labels (pod name, namespace, app) to the log streams it ships.
+# Without labels, you can't filter logs by pod or app in Grafana.
+#
+# Apply:  kubectl apply -f k8s/monitoring/promtail/rbac.yaml
+# =============================================================================
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: promtail
+  namespace: expense-tracker
+  labels:
+    app: promtail
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: promtail
+  labels:
+    app: promtail
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/proxy", "services", "endpoints", "pods"]
+    verbs: ["get", "watch", "list"]
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: promtail
+  labels:
+    app: promtail
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: promtail
+subjects:
+  - kind: ServiceAccount
+    name: promtail
+    namespace: expense-tracker

@@ -1,0 +1,125 @@
+# =============================================================================
+# ConfigMap — prometheus-config
+# =============================================================================
+#
+# prometheus.yml is the main configuration file for Prometheus.
+# It tells Prometheus:
+#   1. How often to scrape metrics (global)
+#   2. WHERE to find targets (scrape_configs)
+#
+# We use three scrape jobs:
+#   a) flask-app       — scrapes /metrics on every pod labelled app=expense-web
+#   b) kubernetes-pods — auto-discovers ALL pods with the annotation:
+#                          prometheus.io/scrape: "true"
+#   c) cadvisor        — scrapes container CPU/memory from the kubelet
+#
+# Apply:  kubectl apply -f k8s/monitoring/prometheus/configmap.yaml
+# After update, reload: kubectl rollout restart deployment/prometheus -n expense-tracker
+# =============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: expense-tracker
+  labels:
+    app: prometheus
+
+data:
+  prometheus.yml: |
+    # ── Global defaults ────────────────────────────────────────────────────────
+    global:
+      # Scrape every 15 seconds by default.
+      # Lower = more data, higher resource use; 15s is a good balance.
+      scrape_interval: 15s
+
+      # Attach these labels to every time series scraped by this Prometheus.
+      # Useful when you have multiple Prometheus instances and use Thanos/Cortex.
+      external_labels:
+        cluster: minikube
+        env: local
+
+    # ── Scrape configurations ──────────────────────────────────────────────────
+    scrape_configs:
+
+      # ── 1. Flask application metrics ──────────────────────────────────────
+      # prometheus-flask-exporter exposes /metrics on the Flask pods at port 5000.
+      # We scrape it directly via the Kubernetes Service DNS name so we don't
+      # need to know individual pod IPs.
+      #
+      # Metrics exposed by prometheus_flask_exporter:
+      #   flask_http_request_total          — request count (by method, path, status)
+      #   flask_http_request_duration_seconds — latency histogram
+      #   flask_http_request_exceptions_total — unhandled exceptions
+      #   process_resident_memory_bytes      — process RSS memory
+      #   process_cpu_seconds_total          — process CPU usage
+      - job_name: flask-app
+        static_configs:
+          - targets: ["expense-web-svc:5000"]
+            labels:
+              app: expense-web
+
+      # ── 2. Auto-discover any pod with prometheus.io/scrape: "true" ─────────
+      # This is a catch-all for future services. Add these annotations to any
+      # pod you want scraped:
+      #   prometheus.io/scrape: "true"
+      #   prometheus.io/port: "8080"    # port to scrape (default: pod's first port)
+      #   prometheus.io/path: "/metrics" # path to scrape (default: /metrics)
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: ["expense-tracker"]
+        relabel_configs:
+          # Only scrape pods that have the annotation prometheus.io/scrape=true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          # Use the annotated port if provided
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            target_label: __address__
+            regex: (.+)
+            replacement: ${__meta_kubernetes_pod_ip}:${1}
+          # Use the annotated path if provided
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          # Add pod labels as Prometheus labels for filtering in Grafana
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          # Add namespace and pod name labels
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+
+      # ── 3. cAdvisor — container CPU and memory ─────────────────────────────
+      # cAdvisor is built into the kubelet on every node.
+      # Access it via the API server proxy (no direct node IP needed).
+      # Metrics: container_cpu_usage_seconds_total, container_memory_working_set_bytes, etc.
+      - job_name: cadvisor
+        scheme: https
+        tls_config:
+          # The kubelet uses a self-signed cert — skip verification for Minikube.
+          # In production, use ca_file instead.
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          # Rewrite the target to use the API proxy path to cAdvisor
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+        metric_relabel_configs:
+          # Only keep metrics for containers in our namespace to reduce cardinality
+          - source_labels: [namespace]
+            regex: expense-tracker
+            action: keep
