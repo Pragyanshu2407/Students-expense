@@ -83,9 +83,11 @@ def on_starting(server):
 
                 server.log.info("Database initialised successfully")
             return
-        except OperationalError:
+        except OperationalError as exc:
             if attempt == max_retries:
-                raise RuntimeError("Database is not reachable — giving up after %d attempts" % max_retries)
+                raise RuntimeError(
+                    "Database is not reachable — giving up after %d attempts" % max_retries
+                ) from exc
             server.log.warning(
                 "Database not ready (attempt %d/%d) — retrying in 3 s…",
                 attempt,

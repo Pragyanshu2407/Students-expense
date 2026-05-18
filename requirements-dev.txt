@@ -1,0 +1,11 @@
+# Dev-only tools — NOT installed in the production Docker image.
+# Install locally with:  pip install -r requirements-dev.txt
+
+# Linting + formatting (replaces flake8 + black + isort)
+ruff==0.11.12
+
+# Python security static-analysis
+bandit==1.8.3
+
+# Dependency vulnerability scanner
+pip-audit==2.9.0

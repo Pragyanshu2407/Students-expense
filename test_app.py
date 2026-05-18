@@ -10,8 +10,8 @@ import pytest
 from tracker import create_app, db
 from tracker.models import Expense, User
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def app():
@@ -47,6 +47,7 @@ def _login(client, username, password):
 
 
 # ── Auth tests ────────────────────────────────────────────────────────────────
+
 
 def test_register_new_user(client):
     """A new student can register and is redirected to login."""
@@ -104,6 +105,7 @@ def test_logout(client, app):
 
 # ── Unauthenticated access ────────────────────────────────────────────────────
 
+
 def test_unauthenticated_redirected_from_student_dashboard(client):
     """Unauthenticated request to student dashboard is redirected to login."""
     resp = client.get("/student/dashboard")
@@ -118,6 +120,7 @@ def test_unauthenticated_redirected_from_admin_dashboard(client):
 
 
 # ── Student role tests ────────────────────────────────────────────────────────
+
 
 def test_student_can_view_dashboard(client, app):
     _make_user(app, "stu", "pass123", role="student")
@@ -180,6 +183,7 @@ def test_student_cannot_access_admin_dashboard(client, app):
 
 # ── Admin role tests ──────────────────────────────────────────────────────────
 
+
 def test_admin_can_view_dashboard(client, app):
     _make_user(app, "adm", "adminpass", role="admin")
     _login(client, "adm", "adminpass")
@@ -193,7 +197,9 @@ def test_admin_can_delete_any_expense(client, app):
     _make_user(app, "adm2", "adminpass", role="admin")
 
     with app.app_context():
-        exp = Expense(title="ToDelete", amount=9.0, category="Other", date="2024-01-01", user_id=uid)
+        exp = Expense(
+            title="ToDelete", amount=9.0, category="Other", date="2024-01-01", user_id=uid
+        )
         db.session.add(exp)
         db.session.commit()
         eid = exp.id
@@ -229,6 +235,7 @@ def test_admin_cannot_delete_own_account(client, app):
 
 
 # ── Health endpoint ───────────────────────────────────────────────────────────
+
 
 def test_health_endpoint(client):
     resp = client.get("/health")

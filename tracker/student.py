@@ -38,9 +38,7 @@ def dashboard():
             return redirect(url_for("student.dashboard"))
 
     expenses = (
-        Expense.query.filter_by(user_id=current_user.id)
-        .order_by(Expense.created_at.desc())
-        .all()
+        Expense.query.filter_by(user_id=current_user.id).order_by(Expense.created_at.desc()).all()
     )
     total = sum(e.amount for e in expenses)
     return render_template(
