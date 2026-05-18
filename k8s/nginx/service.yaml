@@ -1,0 +1,30 @@
+# =============================================================================
+# Service — expense-nginx-svc
+# =============================================================================
+#
+# ClusterIP service — the Ingress routes to this service.
+# Nginx pods are behind this service and load-balanced automatically.
+#
+# Apply:  kubectl apply -f k8s/nginx/service.yaml
+# Verify: kubectl get service expense-nginx-svc -n expense-tracker
+# =============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: expense-nginx-svc
+  namespace: expense-tracker
+  labels:
+    app: expense-nginx
+
+spec:
+  type: ClusterIP
+
+  selector:
+    app: expense-nginx
+
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 80

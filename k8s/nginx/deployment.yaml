@@ -1,0 +1,112 @@
+# =============================================================================
+# Deployment — expense-nginx
+# =============================================================================
+#
+# Nginx acts as a reverse proxy in front of Flask/Gunicorn.
+# It handles: rate limiting, security headers, gzip, connection buffering.
+#
+# Traffic flow inside the cluster:
+#   Ingress → expense-nginx-svc:80 → Nginx pods → expense-web-svc:5000 → Flask pods
+#
+# We run 2 Nginx replicas for high availability (any pod can proxy requests).
+# Nginx is stateless so horizontal scaling is safe.
+#
+# Apply:  kubectl apply -f k8s/nginx/deployment.yaml
+# Verify: kubectl get pods -n expense-tracker -l app=expense-nginx
+# Logs:   kubectl logs -n expense-tracker -l app=expense-nginx -f
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: expense-nginx
+  namespace: expense-tracker
+  labels:
+    app: expense-nginx
+    app.kubernetes.io/name: expense-tracker
+    app.kubernetes.io/component: proxy
+
+spec:
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app: expense-nginx
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  template:
+    metadata:
+      labels:
+        app: expense-nginx
+
+    spec:
+      terminationGracePeriodSeconds: 15
+
+      containers:
+        - name: expense-nginx
+          image: nginx:1.25-alpine
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 80
+
+          # ── Mount nginx.conf from the ConfigMap ────────────────────────────
+          volumeMounts:
+            - name: nginx-config-vol
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf   # mount only this key as a file (not the whole dir)
+              readOnly: true
+
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+
+          # ── Startup probe ─────────────────────────────────────────────────
+          # Nginx starts in under 1 s normally, but give it 10 s to be safe.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 80
+            failureThreshold: 6
+            periodSeconds: 5
+
+          # ── Liveness probe ────────────────────────────────────────────────
+          # If Nginx stops responding, restart the container.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 0
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # ── Readiness probe ───────────────────────────────────────────────
+          # Only route traffic here once Nginx AND Flask are both healthy.
+          # (Nginx's /health proxies to Flask's /health — both must respond.)
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 80
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+      volumes:
+        - name: nginx-config-vol
+          configMap:
+            name: nginx-config
+            items:
+              - key: nginx.conf      # key in the ConfigMap
+                path: nginx.conf     # filename inside the mountPath

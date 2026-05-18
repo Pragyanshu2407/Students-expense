@@ -1,0 +1,70 @@
+# =============================================================================
+# Ingress — expense-ingress
+# =============================================================================
+#
+# An Ingress is a cluster-level HTTP router.  It receives all external HTTP
+# traffic and routes it to the correct internal Service based on hostname/path.
+#
+# PREREQUISITE — enable the Minikube ingress controller FIRST:
+#   minikube addons enable ingress
+#   minikube addons enable ingress-dns     # optional: for DNS resolution
+#
+# Verify controller is running:
+#   kubectl get pods -n ingress-nginx
+#   (wait until STATUS = Running)
+#
+# After applying this Ingress, add a /etc/hosts entry so your browser can
+# resolve "expense-tracker.local" to the Minikube IP:
+#
+#   echo "$(minikube ip)  expense-tracker.local" | sudo tee -a /etc/hosts
+#
+# Then open:  http://expense-tracker.local
+#
+# On Windows (WSL2):
+#   Run PowerShell as Administrator:
+#   Add-Content -Path C:\Windows\System32\drivers\etc\hosts `
+#     "$(minikube ip)  expense-tracker.local"
+#
+# Apply:  kubectl apply -f k8s/ingress.yaml
+# Verify: kubectl get ingress expense-ingress -n expense-tracker
+#         kubectl describe ingress expense-ingress -n expense-tracker
+# =============================================================================
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: expense-ingress
+  namespace: expense-tracker
+  labels:
+    app.kubernetes.io/name: expense-tracker
+  annotations:
+    # Use the nginx ingress controller (installed by `minikube addons enable ingress`)
+    kubernetes.io/ingress.class: "nginx"
+
+    # Proxy timeouts — must match or exceed Flask's gunicorn timeout
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+
+    # Max upload size — must match nginx.conf client_max_body_size
+    nginx.ingress.kubernetes.io/proxy-body-size: "5m"
+
+    # Enable gzip compression at the Ingress layer
+    nginx.ingress.kubernetes.io/enable-compression: "true"
+
+spec:
+  ingressClassName: nginx
+
+  rules:
+    - host: expense-tracker.local   # change to your real domain in production
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                # Route all traffic to the Nginx service.
+                # Nginx then proxies to Flask (expense-web-svc:5000).
+                name: expense-nginx-svc
+                port:
+                  number: 80

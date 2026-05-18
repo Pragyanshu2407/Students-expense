@@ -1,0 +1,164 @@
+# =============================================================================
+# Deployment — postgres
+# =============================================================================
+#
+# A Deployment tells Kubernetes:
+#   "Always keep N copies of this Pod running.  If one dies, start a new one."
+#
+# Why replicas: 1 for Postgres?
+#   PostgreSQL is a stateful service.  Running 2+ replicas requires a primary/
+#   replica setup (streaming replication) which is complex and out of scope.
+#   For HA Postgres in production, use a StatefulSet + operator (e.g. CloudNativePG).
+#   For this project, 1 replica + persistent volume is the right choice.
+#
+# Rolling update strategy is set to Recreate (not RollingUpdate) because:
+#   - Only 1 replica means "rolling" has no effect
+#   - Two Postgres instances sharing the same PV would corrupt data
+#
+# Apply:  kubectl apply -f k8s/postgres/deployment.yaml
+# Verify: kubectl get pods -n expense-tracker -l app=postgres
+#         kubectl describe pod -n expense-tracker -l app=postgres
+# Logs:   kubectl logs -n expense-tracker -l app=postgres -f
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: expense-tracker
+  labels:
+    app: postgres
+    app.kubernetes.io/name: expense-tracker
+    app.kubernetes.io/component: database
+
+spec:
+  replicas: 1
+
+  # ── Selector ───────────────────────────────────────────────────────────────
+  # The Deployment manages all pods whose labels match this selector.
+  selector:
+    matchLabels:
+      app: postgres
+
+  # ── Update strategy ────────────────────────────────────────────────────────
+  # Recreate: kill the existing pod first, THEN start the new one.
+  # Safe for single-replica stateful workloads — no two instances share the PV.
+  strategy:
+    type: Recreate
+
+  # ── Pod template ───────────────────────────────────────────────────────────
+  # Every field under `template` defines what each pod looks like.
+  template:
+    metadata:
+      labels:
+        app: postgres   # must match spec.selector.matchLabels above
+
+    spec:
+      # ── Graceful shutdown ─────────────────────────────────────────────────
+      # Give Postgres up to 60 s to finish current transactions before SIGKILL.
+      terminationGracePeriodSeconds: 60
+
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+
+          # ── Environment variables ─────────────────────────────────────────
+          # Non-sensitive values come from the ConfigMap.
+          # Sensitive values (password) come from the Secret.
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: POSTGRES_DB
+
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: POSTGRES_USER
+
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: POSTGRES_PASSWORD
+
+            # Store data inside the mounted volume, not the container filesystem.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+
+          # ── Volume mount ──────────────────────────────────────────────────
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+
+          # ── Resource limits ───────────────────────────────────────────────
+          # requests: the minimum guaranteed resources (used for scheduling)
+          # limits:   the hard ceiling (pod is OOM-killed if it exceeds memory)
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "250m"     # 250 millicores = 0.25 vCPU
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+
+          # ── Startup probe ─────────────────────────────────────────────────
+          # Postgres can take 10–20 s to initialise its data directory on first
+          # boot.  The startup probe gives it up to 60 s (12 × 5 s) before
+          # liveness/readiness probes kick in.
+          # Without this, liveness would kill the pod before it finished starting.
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"
+            failureThreshold: 12
+            periodSeconds: 5
+
+          # ── Liveness probe ────────────────────────────────────────────────
+          # "Is Postgres still alive?"
+          # If this fails 3 times in a row, Kubernetes restarts the container.
+          # pg_isready exits 0 if Postgres accepts connections, non-zero otherwise.
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"
+            initialDelaySeconds: 0   # startup probe already handled the delay
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+
+          # ── Readiness probe ───────────────────────────────────────────────
+          # "Is Postgres ready to accept connections from the Flask app?"
+          # If this fails, the pod is removed from the postgres-svc endpoints —
+          # the Flask app's connection pool will not route to a recovering pod.
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"
+            initialDelaySeconds: 0
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+
+      # ── Volumes ───────────────────────────────────────────────────────────
+      # Attach the PVC as a named volume that the container can mount.
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: postgres-pvc

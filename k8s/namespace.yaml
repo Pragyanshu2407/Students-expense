@@ -1,0 +1,23 @@
+# =============================================================================
+# Namespace — expense-tracker
+# =============================================================================
+#
+# A Namespace is a virtual cluster inside a real Kubernetes cluster.
+# Everything in this project lives in the "expense-tracker" namespace so that:
+#   - Resources are isolated from other workloads on the same cluster
+#   - You can delete the whole project with one command:
+#       kubectl delete namespace expense-tracker
+#   - RBAC rules (Phase 5) can be scoped to just this namespace
+#
+# Apply:  kubectl apply -f k8s/namespace.yaml
+# Verify: kubectl get namespace expense-tracker
+# =============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: expense-tracker
+  labels:
+    # Standard Kubernetes recommended labels — used by monitoring/tooling
+    app.kubernetes.io/name: expense-tracker
+    app.kubernetes.io/managed-by: kubectl

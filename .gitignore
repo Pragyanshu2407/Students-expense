@@ -4,3 +4,5 @@ __pycache__/
 .env
 *.db
 .pytest_cache/
+# Kubernetes secret file — fill in real values locally, never commit
+k8s/secret.yaml
