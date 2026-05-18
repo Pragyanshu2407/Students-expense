@@ -1,27 +1,22 @@
-# ── Stage 1: base image ───────────────────────────────────────────────────────
+# ── Stage 1: base — install Python dependencies ───────────────────────────────
 FROM python:3.12-slim AS base
 
-# Keeps Python from buffering stdout/stderr (helpful for container logs)
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
 WORKDIR /app
 
-# Install dependencies in a separate layer so Docker can cache them
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# ── Stage 2: app ──────────────────────────────────────────────────────────────
+# ── Stage 2: app — copy source and run ────────────────────────────────────────
 FROM base AS app
 
-COPY app.py .
-
-# The SQLite database will live inside the container at /data/expenses.db.
-# Mount a named volume to /data to persist data across container restarts.
-ENV DB_PATH=/data/expenses.db
-RUN mkdir -p /data
+# Copy application source (tracker package, config, entry point)
+COPY tracker/ tracker/
+COPY config.py run.py app.py ./
 
 EXPOSE 5000
 
-# Run with the built-in Flask dev server (replace with gunicorn for production)
-CMD ["python", "app.py"]
+# run.py handles DB init + admin seeding before starting Flask
+CMD ["python", "run.py"]

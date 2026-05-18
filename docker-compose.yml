@@ -1,6 +1,26 @@
 version: "3.9"
 
 services:
+
+  # ── PostgreSQL database ──────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: expense-db
+    environment:
+      POSTGRES_DB: expense_tracker
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Flask web application ────────────────────────────────────────────────────
   web:
     build:
       context: .
@@ -9,20 +29,23 @@ services:
     image: student-expense-tracker:latest
     container_name: expense-tracker
     ports:
-      - "5000:5000"          # host:container
+      - "5000:5000"
     environment:
-      - DB_PATH=/data/expenses.db
-    volumes:
-      - expense_data:/data   # persist SQLite DB across restarts
+      DATABASE_URL: postgresql://postgres:password@db:5432/expense_tracker
+      SECRET_KEY: change-this-secret-in-production
+      FLASK_ENV: development
+    depends_on:
+      db:
+        condition: service_healthy   # wait until Postgres passes its healthcheck
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c",
-             "import urllib.request; urllib.request.urlopen('http://localhost:5000/')"]
+             "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
 
 volumes:
-  expense_data:
+  postgres_data:
     driver: local

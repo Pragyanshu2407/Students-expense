@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  # ── Job 1: Run pytest ────────────────────────────────────────────────────────
+  # ── Job 1: Run pytest (SQLite in-memory, no Postgres needed) ─────────────────
   test:
     name: Run Pytest
     runs-on: ubuntu-latest
@@ -27,8 +27,10 @@ jobs:
 
       - name: Run tests
         run: pytest test_app.py -v --tb=short
+        env:
+          FLASK_ENV: testing   # selects TestingConfig → SQLite in-memory
 
-  # ── Job 2: Build Docker image ────────────────────────────────────────────────
+  # ── Job 2: Build Docker image and smoke-test it ───────────────────────────────
   build:
     name: Build Docker Image
     runs-on: ubuntu-latest
@@ -55,10 +57,23 @@ jobs:
 
       - name: Smoke-test the image
         run: |
+          # Use SQLite so the smoke test doesn't need a running Postgres container
           docker run -d --name expense-tracker \
-            -e DB_PATH=/tmp/expenses.db \
+            -e DATABASE_URL="sqlite:////tmp/expenses.db" \
+            -e SECRET_KEY="ci-smoke-test-secret" \
+            -e FLASK_ENV="development" \
             -p 5000:5000 \
             student-expense-tracker:latest
-          sleep 5
-          curl --fail http://localhost:5000/ || (docker logs expense-tracker && exit 1)
+
+          # Wait up to 30s for the app to be ready
+          for i in $(seq 1 10); do
+            curl -sf http://localhost:5000/health && break
+            echo "Waiting for app… (attempt $i/10)"
+            sleep 3
+          done
+
+          # Final check — fail the job if still not up
+          curl --fail http://localhost:5000/health \
+            || (docker logs expense-tracker && exit 1)
+
           docker stop expense-tracker

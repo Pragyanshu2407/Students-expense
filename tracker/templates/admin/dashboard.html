@@ -1,0 +1,172 @@
+{% extends 'base.html' %}
+{% block title %}Admin Dashboard — Expense Tracker{% endblock %}
+
+{% block content %}
+
+<!-- ── Summary Cards ─────────────────────────────────── -->
+<div class="row g-3 mt-1">
+  <div class="col-sm-3">
+    <div class="card stat-card p-3 text-white bg-danger">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <div class="small opacity-75">Total Users</div>
+          <div class="fs-3 fw-bold">{{ users | length }}</div>
+        </div>
+        <i class="bi bi-people-fill fs-1 opacity-40"></i>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-3">
+    <div class="card stat-card p-3 text-white bg-warning">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <div class="small opacity-75">Total Expenses</div>
+          <div class="fs-3 fw-bold">{{ expenses | length }}</div>
+        </div>
+        <i class="bi bi-receipt fs-1 opacity-40"></i>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-3">
+    <div class="card stat-card p-3 text-white bg-success">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <div class="small opacity-75">Total Amount</div>
+          <div class="fs-3 fw-bold">${{ "%.2f" | format(total) }}</div>
+        </div>
+        <i class="bi bi-cash-stack fs-1 opacity-40"></i>
+      </div>
+    </div>
+  </div>
+  <div class="col-sm-3">
+    <div class="card stat-card p-3 text-white bg-primary">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <div class="small opacity-75">Students</div>
+          <div class="fs-3 fw-bold">
+            {{ users | selectattr('role', 'equalto', 'student') | list | length }}
+          </div>
+        </div>
+        <i class="bi bi-mortarboard fs-1 opacity-40"></i>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Users Table ───────────────────────────────────── -->
+<div class="card mt-4">
+  <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+    <h5 class="mb-0 fw-bold">
+      <i class="bi bi-people me-2 text-secondary"></i>All Users
+    </h5>
+    <span class="badge bg-secondary">{{ users | length }}</span>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>#</th>
+          <th>Username</th>
+          <th>Email</th>
+          <th>Role</th>
+          <th>Joined</th>
+          <th>Expenses</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td class="text-muted small">{{ u.id }}</td>
+          <td><strong>{{ u.username }}</strong></td>
+          <td class="text-muted small">{{ u.email }}</td>
+          <td>
+            <span class="badge badge-role-{{ u.role }}">{{ u.role }}</span>
+          </td>
+          <td class="text-muted small">{{ u.created_at.strftime('%Y-%m-%d') }}</td>
+          <td>{{ u.expenses | length }}</td>
+          <td>
+            {% if u.id != current_user.id %}
+            <form method="POST"
+                  action="{{ url_for('admin.delete_user', user_id=u.id) }}"
+                  onsubmit="return confirm('Delete user {{ u.username }} and ALL their expenses?')">
+              <button class="btn btn-outline-danger btn-sm">
+                <i class="bi bi-person-x"></i>
+              </button>
+            </form>
+            {% else %}
+            <span class="badge bg-light text-muted border">You</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Expenses Table ────────────────────────────────── -->
+<div class="card mt-4 mb-4">
+  <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+    <h5 class="mb-0 fw-bold">
+      <i class="bi bi-list-ul me-2 text-secondary"></i>All Expenses
+    </h5>
+    <span class="badge bg-secondary">{{ expenses | length }}</span>
+  </div>
+
+  {% if expenses %}
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>#</th>
+          <th>Student</th>
+          <th>Title</th>
+          <th>Category</th>
+          <th>Date</th>
+          <th>Amount</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in expenses %}
+        <tr>
+          <td class="text-muted small">{{ e.id }}</td>
+          <td>
+            <span class="badge bg-light text-dark border">{{ e.user.username }}</span>
+          </td>
+          <td>{{ e.title }}</td>
+          <td><span class="badge bg-light text-muted border">{{ e.category }}</span></td>
+          <td class="text-muted small">{{ e.date }}</td>
+          <td class="fw-semibold text-success">${{ "%.2f" | format(e.amount) }}</td>
+          <td>
+            <form method="POST"
+                  action="{{ url_for('admin.delete_expense', expense_id=e.id) }}"
+                  onsubmit="return confirm('Delete this expense?')">
+              <button class="btn btn-outline-danger btn-sm">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="table-light">
+        <tr>
+          <td colspan="5" class="fw-bold text-end text-muted small">TOTAL</td>
+          <td class="fw-bold text-primary">${{ "%.2f" | format(total) }}</td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  {% else %}
+  <div class="text-center py-5 text-muted">
+    <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+    No expenses recorded yet.
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
