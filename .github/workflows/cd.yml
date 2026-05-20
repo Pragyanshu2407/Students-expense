@@ -202,6 +202,7 @@ jobs:
 
       - name: Upload Trivy scan to GitHub Security
         if: always()
+        continue-on-error: true   # requires GitHub Advanced Security (free for public repos only)
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-push.sarif
