@@ -59,6 +59,7 @@ pipeline {
                 docker {
                     image 'python:3.12-slim'
                     reuseNode true          // run on same workspace as outer agent
+                    args '-u root'          // run as root so pip can install packages
                 }
             }
             steps {
@@ -79,6 +80,7 @@ pipeline {
                 docker {
                     image 'python:3.12-slim'
                     reuseNode true
+                    args '-u root'
                 }
             }
             steps {
@@ -103,6 +105,7 @@ pipeline {
                 docker {
                     image 'python:3.12-slim'
                     reuseNode true
+                    args '-u root'
                 }
             }
             steps {
