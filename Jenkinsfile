@@ -132,21 +132,29 @@ pipeline {
         // ── Stage 6: Smoke Test ───────────────────────────────────────────────
         // Starts the freshly built container and hits /health.
         // Uses SQLite so no Postgres needed.
+        // NOTE: Jenkins itself runs inside Docker, so we cannot use localhost:PORT
+        // to reach a sibling container. Instead we get the container's internal
+        // bridge IP and curl that directly on port 5000.
         stage('Smoke Test') {
             steps {
                 echo 'Starting container and testing /health endpoint…'
                 sh '''
-                    # Start the container
+                    # Start the container (no port publish needed — we use internal IP)
                     docker run --detach --name jenkins-smoke-${BUILD_NUMBER} \
                         --env DATABASE_URL="sqlite:////tmp/ci.db" \
                         --env SECRET_KEY="jenkins-smoke-test-only" \
                         --env FLASK_ENV="development" \
-                        --publish 5001:5000 \
                         student-expense-tracker:latest
+
+                    # Get the container's internal Docker bridge IP
+                    SMOKE_IP=$(docker inspect -f \
+                        '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \
+                        jenkins-smoke-${BUILD_NUMBER})
+                    echo "Smoke container IP: $SMOKE_IP"
 
                     echo "Waiting for app to be ready..."
                     for i in $(seq 1 15); do
-                        if curl -sf http://localhost:5001/health; then
+                        if curl -sf http://${SMOKE_IP}:5000/health; then
                             echo "App is healthy after $i attempt(s)"
                             break
                         fi
@@ -155,7 +163,7 @@ pipeline {
                     done
 
                     # Hard fail if app never became healthy
-                    curl --fail --silent http://localhost:5001/health \
+                    curl --fail --silent http://${SMOKE_IP}:5000/health \
                         || { echo "App never became healthy"; docker logs jenkins-smoke-${BUILD_NUMBER}; exit 1; }
                 '''
             }
